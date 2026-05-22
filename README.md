@@ -12,6 +12,7 @@
 - [技术架构](#技术架构)
 - [项目结构](#项目结构)
 - [快速开始](#快速开始)
+- [运行方式说明](#运行方式说明)
 - [默认账号](#默认账号)
 - [测试与构建](#测试与构建)
 - [数据库与迁移](#数据库与迁移)
@@ -100,6 +101,75 @@ frontend/dist/
 
 ## 快速开始
 
+项目支持两种运行方式：
+
+- **标准开发运行**：适合从 GitHub clone 源码的人，需要自己安装 JDK、Maven、Node.js 和 PostgreSQL。
+- **Windows Release 便携运行**：适合下载 Release 里的 `enterprise-approval-sdd-windows-devkit.zip`，压缩包内自带 Maven 和 PostgreSQL 运行工具。
+
+### 方式 A：标准开发运行
+
+适用于 GitHub 源码仓库或 `enterprise-approval-sdd-source.zip`。
+
+你需要先准备：
+
+```text
+JDK 8+ 或 JDK 17/21
+Maven
+Node.js + npm
+PostgreSQL
+```
+
+创建数据库：
+
+```sql
+CREATE DATABASE enterprise_approval;
+```
+
+如果你的 PostgreSQL 连接信息不是默认值，可以通过环境变量覆盖：
+
+```powershell
+$env:APP_DATASOURCE_URL="jdbc:postgresql://localhost:5432/enterprise_approval"
+$env:APP_DATASOURCE_USERNAME="postgres"
+$env:APP_DATASOURCE_PASSWORD="你的数据库密码"
+```
+
+启动后端：
+
+```powershell
+cd .\backend
+mvn spring-boot:run "-Dspring-boot.run.profiles=postgres"
+```
+
+启动前端：
+
+```powershell
+cd .\frontend
+npm.cmd install
+npm.cmd run dev
+```
+
+访问地址：
+
+```text
+http://localhost:5173/
+```
+
+### 方式 B：Windows Release 便携运行
+
+适用于 Release 里的 `enterprise-approval-sdd-windows-devkit.zip`。
+
+便携包包含：
+
+```text
+tools/apache-maven-3.9.9/
+tools/pgsql/bin/
+tools/pgsql/lib/
+tools/pgsql/share/
+tools/pgdata/
+```
+
+其中 `tools/pgdata/` 是发布时新初始化的空数据库目录，只包含空数据库 `enterprise_approval`，不包含本地业务数据。
+
 以下命令均在项目根目录 `enterprise-approval-sdd` 下执行。
 
 ### 1. 启动 PostgreSQL
@@ -139,6 +209,18 @@ http://localhost:5173/
 ```powershell
 .\tools\pgsql\bin\pg_ctl.exe -D .\tools\pgdata stop
 ```
+
+---
+
+## 运行方式说明
+
+| 下载方式 | 是否包含 tools | 适合人群 | 运行方式 |
+| --- | --- | --- | --- |
+| GitHub 源码仓库 | 否 | 开发者、学习源码 | 按“方式 A：标准开发运行” |
+| `enterprise-approval-sdd-source.zip` | 否 | 想要干净源码的人 | 按“方式 A：标准开发运行” |
+| `enterprise-approval-sdd-windows-devkit.zip` | 是 | Windows 本地快速体验 | 按“方式 B：Windows Release 便携运行” |
+
+`tools/` 不提交到 Git 仓库，是为了避免把本机工具、数据库文件和大体积二进制放进源码历史。Release 便携包可以包含运行工具，因为它是面向下载体验的一次性附件。
 
 ---
 
