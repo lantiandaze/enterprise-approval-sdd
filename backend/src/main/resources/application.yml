@@ -1,0 +1,14 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: enterprise-approval
+  profiles:
+    active: dev
+  jpa:
+    open-in-view: false
+
+logging:
+  pattern:
+    level: "%5p [%X{requestId}]"

@@ -1,0 +1,4 @@
+# Project-level tooling placeholder.
+# Backend uses Java + Spring Boot; frontend uses React + TypeScript.
+# Add Python-based documentation or automation dependencies here only when needed.
+

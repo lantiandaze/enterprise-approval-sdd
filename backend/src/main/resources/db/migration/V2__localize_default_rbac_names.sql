@@ -1,0 +1,20 @@
+UPDATE sys_role SET name = '系统管理员', updated_at = CURRENT_TIMESTAMP WHERE code = 'admin' AND deleted = FALSE;
+UPDATE sys_role SET name = '普通员工', updated_at = CURRENT_TIMESTAMP WHERE code = 'employee' AND deleted = FALSE;
+UPDATE sys_role SET name = '部门主管', updated_at = CURRENT_TIMESTAMP WHERE code = 'department_manager' AND deleted = FALSE;
+UPDATE sys_role SET name = '财务人员', updated_at = CURRENT_TIMESTAMP WHERE code = 'finance' AND deleted = FALSE;
+UPDATE sys_role SET name = '人事人员', updated_at = CURRENT_TIMESTAMP WHERE code = 'hr' AND deleted = FALSE;
+UPDATE sys_role SET name = '总经理', updated_at = CURRENT_TIMESTAMP WHERE code = 'general_manager' AND deleted = FALSE;
+
+UPDATE sys_permission SET name = '工作台', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.dashboard' AND deleted = FALSE;
+UPDATE sys_permission SET name = '发起申请', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.approvals.new' AND deleted = FALSE;
+UPDATE sys_permission SET name = '我的申请', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.approvals.my' AND deleted = FALSE;
+UPDATE sys_permission SET name = '我的待办', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.approvals.todo' AND deleted = FALSE;
+UPDATE sys_permission SET name = '我的已办', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.approvals.done' AND deleted = FALSE;
+UPDATE sys_permission SET name = '抄送我的', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.approvals.cc' AND deleted = FALSE;
+UPDATE sys_permission SET name = '审批管理', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.approvals.manage' AND deleted = FALSE;
+UPDATE sys_permission SET name = '组织架构', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.organization' AND deleted = FALSE;
+UPDATE sys_permission SET name = '用户管理', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.users' AND deleted = FALSE;
+UPDATE sys_permission SET name = '角色权限', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.roles' AND deleted = FALSE;
+UPDATE sys_permission SET name = '流程配置', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.workflow_config' AND deleted = FALSE;
+UPDATE sys_permission SET name = '通知中心', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.notifications' AND deleted = FALSE;
+UPDATE sys_permission SET name = '审计日志', updated_at = CURRENT_TIMESTAMP WHERE code = 'menu.audit_logs' AND deleted = FALSE;
