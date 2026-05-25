@@ -20,6 +20,8 @@ public class ApprovalManagementQuery {
     private BigDecimal minAmount;
     private BigDecimal maxAmount;
     private Boolean urgent;
+    private Integer page;
+    private Integer pageSize;
 
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }
@@ -39,4 +41,19 @@ public class ApprovalManagementQuery {
     public void setMaxAmount(BigDecimal maxAmount) { this.maxAmount = maxAmount; }
     public Boolean getUrgent() { return urgent; }
     public void setUrgent(Boolean urgent) { this.urgent = urgent; }
+    public Integer getPage() { return page; }
+    public void setPage(Integer page) { this.page = page; }
+    public Integer getPageSize() { return pageSize; }
+    public void setPageSize(Integer pageSize) { this.pageSize = pageSize; }
+
+    public int resolvePage() {
+        return page == null || page < 1 ? 1 : page;
+    }
+
+    public int resolvePageSize() {
+        if (pageSize == null || pageSize < 1) {
+            return 20;
+        }
+        return Math.min(pageSize, 200);
+    }
 }

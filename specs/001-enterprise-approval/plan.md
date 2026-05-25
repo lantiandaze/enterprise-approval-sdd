@@ -344,11 +344,13 @@ com.company.approval
 第一版内置角色：
 
 - employee
-- supervisor
+- department_manager
 - finance
 - hr
 - general_manager
 - admin
+
+（注：实现层部门主管的角色码为 `department_manager`，与 plan 初稿中提到的 `supervisor` 同义。）
 
 权限分三类：
 
@@ -1171,10 +1173,12 @@ voided
 | --- | --- |
 | 普通员工 | 自己提交的、自己审批过的、抄送给自己的 |
 | 部门主管 | 普通员工范围 + 本部门员工提交的 |
-| 财务人员 | 普通员工范围 + 报销相关审批记录 |
-| 人事人员 | 普通员工范围 + 请假和加班相关审批记录 |
+| 财务人员 | 全公司范围内仅 `expense`（报销）类申请 |
+| 人事人员 | 全公司范围内仅 `leave` 与 `overtime` 类申请 |
 | 总经理/老板 | 全公司审批记录 |
 | 系统管理员 | 全公司审批记录、配置和审计数据 |
+
+实现层落点：`DataPermissionService#decide` 返回 `DataPermissionDecision { scope, allowedApprovalTypes }`。`ALL` 表示跨部门范围，`allowedApprovalTypes` 非空时再叠加类型过滤（财务/人事专用）。所有列表查询、详情查询、导出和工作台聚合都必须以 `decide()` 返回值为唯一数据范围依据。
 
 ### 11.2 后端控制方式
 
@@ -1228,22 +1232,32 @@ voided
 | --- | --- | --- |
 | POST | `/api/approvals/drafts` | 创建或保存草稿 |
 | POST | `/api/approvals` | 提交申请 |
-| GET | `/api/approvals/my` | 我的申请 |
+| GET | `/api/approvals/mine` | 我的申请 |
 | GET | `/api/approvals/todo` | 我的待办 |
 | GET | `/api/approvals/done` | 我的已办 |
 | GET | `/api/approvals/cc` | 抄送我的 |
-| GET | `/api/approvals/manage` | 审批管理列表 |
-| GET | `/api/approvals/:id` | 审批详情 |
-| POST | `/api/approvals/:id/submit` | 草稿提交或重新提交 |
-| POST | `/api/approvals/:id/withdraw` | 撤回 |
-| POST | `/api/approvals/:id/approve` | 同意 |
-| POST | `/api/approvals/:id/reject` | 驳回 |
-| POST | `/api/approvals/:id/transfer` | 转交 |
-| POST | `/api/approvals/:id/add-approver` | 加签 |
-| POST | `/api/approvals/:id/request-more-info` | 要求补充材料 |
-| POST | `/api/approvals/:id/cc` | 抄送 |
-| POST | `/api/approvals/:id/void` | 作废 |
-| GET | `/api/approvals/export` | 导出审批记录 |
+| GET | `/api/approval-management` | 审批管理列表（分页） |
+| GET | `/api/approval-management/export` | 导出审批记录（CSV） |
+| GET | `/api/approval-management/dashboard` | 工作台汇总 |
+| GET | `/api/approval-management/statistics` | 统计看板 |
+| GET | `/api/approvals/{id}` | 审批详情 |
+| POST | `/api/approvals/{id}/submit` | 草稿提交 |
+| POST | `/api/approvals/{id}/resubmit` | 补充材料后重新提交 |
+| POST | `/api/approvals/{id}/withdraw` | 撤回 |
+| POST | `/api/approvals/{id}/void` | 作废（仅 admin，且仅允许 approved 状态） |
+| POST | `/api/approvals/tasks/{taskId}/approve` | 同意（针对待办任务） |
+| POST | `/api/approvals/tasks/{taskId}/reject` | 驳回 |
+| POST | `/api/approvals/tasks/{taskId}/transfer` | 转交 |
+| POST | `/api/approvals/tasks/{taskId}/add-signer` | 加签 |
+| POST | `/api/approvals/tasks/{taskId}/request-more-info` | 要求补充材料 |
+| POST | `/api/approvals/tasks/{taskId}/cc` | 抄送 |
+
+说明：
+
+- 审批动作 API 以 `task` 为主语 (`/api/approvals/tasks/{taskId}/...`)，与 plan 初稿的 `/api/approvals/{id}/approve` 形式相比更准确反映「针对某条待办任务执行」的语义。
+- 审批管理、导出、工作台、统计统一挂在 `/api/approval-management` 下，与发起端/操作端的 `/api/approvals` 分组隔离。
+- 列表接口统一返回分页对象 `{ items, totalCount, page, pageSize }`；默认 `pageSize=20`，硬上限 `200`。导出接口对查询条件应用相同的数据权限规则，单次导出上限 5000 条。
+- 报销审批类型在实现层使用 `expense` 作为枚举值（与 plan 早期使用的 `reimbursement` 等价，下同）。
 
 ### 12.4 Workflow API
 
@@ -1592,14 +1606,16 @@ voided
 
 - 常规列表查询在 2 秒内返回。
 - 工作台数据在 2 秒内返回。
-- 单页列表默认分页 20 条。
+- 单页列表默认分页 20 条，硬上限 200 条；服务端必须使用 `Pageable`，不得一次性把全表加载到内存。
 - 审计日志、审批列表必须分页查询。
+- 统计看板按角色范围使用 `count` 聚合查询，不得在单次接口里反序列化全部业务行。
 
 ### 19.2 安全
 
 - 密码必须哈希存储。
 - 使用 Spring Security 统一认证与授权。
 - 使用 JWT 或等价访问令牌承载登录态。
+- JWT 签名密钥不得使用代码内置默认值在生产环境运行：`JwtTokenService` 在启动期间会比对 `security.jwt.secret` 与默认值并结合 `app.environment` 判断，非 `development`/`dev`/`test` 环境若仍为默认值则启动失败；开发环境保留 WARN 日志。
 - 所有业务 API 必须认证。
 - 所有管理 API 必须校验角色和权限。
 - 关键接口使用 `@PreAuthorize` 或统一权限校验组件。

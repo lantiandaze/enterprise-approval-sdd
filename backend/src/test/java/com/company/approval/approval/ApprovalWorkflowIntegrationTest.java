@@ -28,6 +28,7 @@ class ApprovalWorkflowIntegrationTest {
     void employeeSubmitManagerApproveAndNotificationsAreCreated() {
         String employeeToken = login("employee01");
         String managerToken = login("manager01");
+        String hrToken = login("hr01");
 
         Map<String, Object> payload = new HashMap<String, Object>();
         payload.put("title", "integration approval " + System.currentTimeMillis());
@@ -45,17 +46,27 @@ class ApprovalWorkflowIntegrationTest {
         Number requestId = (Number) createdData.get("id");
         assertNotNull(requestId);
 
-        List<Map<String, Object>> todo = listData(get("/api/approvals/todo", managerToken));
-        Map<String, Object> task = findByRequestId(todo, requestId.longValue());
-        assertNotNull(task);
+        List<Map<String, Object>> managerTodo = listData(get("/api/approvals/todo", managerToken));
+        Map<String, Object> managerTask = findByRequestId(managerTodo, requestId.longValue());
+        assertNotNull(managerTask, "manager01 should receive leave approval todo");
 
-        List<Map<String, Object>> notifications = listData(get("/api/notifications", managerToken));
-        assertTrue(notifications.stream().anyMatch(item -> requestId.longValue() == ((Number) item.get("relatedRequestId")).longValue()));
+        List<Map<String, Object>> managerNotifications = listData(get("/api/notifications", managerToken));
+        assertTrue(managerNotifications.stream().anyMatch(item -> requestId.longValue() == ((Number) item.get("relatedRequestId")).longValue()));
 
         Map<String, Object> approveBody = new HashMap<String, Object>();
-        approveBody.put("comment", "approved by integration test");
-        Map<String, Object> approved = post("/api/approvals/tasks/" + task.get("id") + "/approve", managerToken, approveBody);
-        assertEquals("approved", data(approved).get("requestStatus"));
+        approveBody.put("comment", "approved by integration test - manager");
+        Map<String, Object> managerApproved = post("/api/approvals/tasks/" + managerTask.get("id") + "/approve", managerToken, approveBody);
+        // 主管同意后应进入 HR 确认节点，整体请求仍处于 in_progress
+        assertEquals("in_progress", data(managerApproved).get("requestStatus"));
+
+        List<Map<String, Object>> hrTodo = listData(get("/api/approvals/todo", hrToken));
+        Map<String, Object> hrTask = findByRequestId(hrTodo, requestId.longValue());
+        assertNotNull(hrTask, "hr01 should receive HR confirmation todo after manager approve");
+
+        Map<String, Object> hrApproveBody = new HashMap<String, Object>();
+        hrApproveBody.put("comment", "approved by integration test - hr");
+        Map<String, Object> finalApproved = post("/api/approvals/tasks/" + hrTask.get("id") + "/approve", hrToken, hrApproveBody);
+        assertEquals("approved", data(finalApproved).get("requestStatus"));
 
         List<Map<String, Object>> employeeNotifications = listData(get("/api/notifications", employeeToken));
         assertTrue(employeeNotifications.stream().anyMatch(item -> "approved".equals(item.get("type"))

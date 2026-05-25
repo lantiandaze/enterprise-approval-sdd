@@ -244,6 +244,15 @@ export type ApprovalManagementQuery = {
   minAmount?: number;
   maxAmount?: number;
   urgent?: boolean;
+  page?: number;
+  pageSize?: number;
+};
+
+export type PagedResult<T> = {
+  items: T[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
 };
 
 export type ApprovalManagementItem = {
@@ -532,7 +541,7 @@ export async function fetchAuditWorkflowConfigs() {
 }
 
 export async function fetchApprovalManagement(query?: ApprovalManagementQuery) {
-  const response = await api.get<ApiResponse<ApprovalManagementItem[]>>('/approval-management', { params: query });
+  const response = await api.get<ApiResponse<PagedResult<ApprovalManagementItem>>>('/approval-management', { params: query });
   return response.data;
 }
 

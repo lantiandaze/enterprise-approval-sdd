@@ -1,6 +1,8 @@
 package com.company.approval.security.permission;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 import java.util.Arrays;
@@ -21,6 +23,7 @@ class DataPermissionServiceTest {
         DataPermissionDecision decision = new DataPermissionService(users).decide(principal(1L, "admin"));
 
         assertEquals(DataPermissionScope.ALL, decision.getScope());
+        assertFalse(decision.hasApprovalTypeRestriction());
     }
 
     @Test
@@ -33,6 +36,7 @@ class DataPermissionServiceTest {
 
         assertEquals(DataPermissionScope.DEPARTMENT, decision.getScope());
         assertEquals(10L, decision.getDepartmentId());
+        assertFalse(decision.hasApprovalTypeRestriction());
     }
 
     @Test
@@ -42,6 +46,41 @@ class DataPermissionServiceTest {
         DataPermissionDecision decision = new DataPermissionService(users).decide(principal(3L, "employee"));
 
         assertEquals(DataPermissionScope.SELF, decision.getScope());
+        assertFalse(decision.hasApprovalTypeRestriction());
+    }
+
+    @Test
+    void financeOnlySeesExpenseAcrossAll() {
+        SysUserRepository users = Mockito.mock(SysUserRepository.class);
+        when(users.findById(4L)).thenReturn(Optional.of(user(4L)));
+        DataPermissionDecision decision = new DataPermissionService(users).decide(principal(4L, "finance"));
+
+        assertEquals(DataPermissionScope.ALL, decision.getScope());
+        assertTrue(decision.hasApprovalTypeRestriction());
+        assertEquals(java.util.Collections.singleton("expense"), decision.getAllowedApprovalTypes());
+    }
+
+    @Test
+    void hrOnlySeesLeaveAndOvertimeAcrossAll() {
+        SysUserRepository users = Mockito.mock(SysUserRepository.class);
+        when(users.findById(5L)).thenReturn(Optional.of(user(5L)));
+        DataPermissionDecision decision = new DataPermissionService(users).decide(principal(5L, "hr"));
+
+        assertEquals(DataPermissionScope.ALL, decision.getScope());
+        assertTrue(decision.hasApprovalTypeRestriction());
+        assertTrue(decision.getAllowedApprovalTypes().contains("leave"));
+        assertTrue(decision.getAllowedApprovalTypes().contains("overtime"));
+        assertFalse(decision.getAllowedApprovalTypes().contains("expense"));
+    }
+
+    @Test
+    void generalManagerSeesAllWithoutTypeRestriction() {
+        SysUserRepository users = Mockito.mock(SysUserRepository.class);
+        when(users.findById(6L)).thenReturn(Optional.of(user(6L)));
+        DataPermissionDecision decision = new DataPermissionService(users).decide(principal(6L, "general_manager"));
+
+        assertEquals(DataPermissionScope.ALL, decision.getScope());
+        assertFalse(decision.hasApprovalTypeRestriction());
     }
 
     private UserPrincipal principal(Long id, String role) {

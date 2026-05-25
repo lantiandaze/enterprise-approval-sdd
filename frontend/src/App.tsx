@@ -92,19 +92,19 @@ type LoginValues = {
 };
 
 const menuItems = [
-  { key: 'dashboard', icon: <DashboardOutlined />, label: '工作台' },
-  { key: 'new', icon: <SendOutlined />, label: '发起申请' },
-  { key: 'my', icon: <CheckSquareOutlined />, label: '我的申请' },
-  { key: 'todo', icon: <CheckSquareOutlined />, label: '我的待办' },
-  { key: 'done', icon: <CheckSquareOutlined />, label: '我的已办' },
-  { key: 'cc', icon: <BellOutlined />, label: '抄送我的' },
-  { key: 'manage', icon: <SettingOutlined />, label: '审批管理' },
-  { key: 'organization', icon: <PartitionOutlined />, label: '组织架构' },
-  { key: 'users', icon: <TeamOutlined />, label: '用户管理' },
-  { key: 'roles', icon: <SafetyOutlined />, label: '角色权限' },
-  { key: 'workflow', icon: <SettingOutlined />, label: '流程配置' },
-  { key: 'notifications', icon: <BellOutlined />, label: '通知中心' },
-  { key: 'audit', icon: <AuditOutlined />, label: '审计日志' }
+  { key: 'dashboard', icon: <DashboardOutlined />, label: '工作台', permission: 'menu.dashboard' },
+  { key: 'new', icon: <SendOutlined />, label: '发起申请', permission: 'menu.approvals.new' },
+  { key: 'my', icon: <CheckSquareOutlined />, label: '我的申请', permission: 'menu.approvals.my' },
+  { key: 'todo', icon: <CheckSquareOutlined />, label: '我的待办', permission: 'menu.approvals.todo' },
+  { key: 'done', icon: <CheckSquareOutlined />, label: '我的已办', permission: 'menu.approvals.done' },
+  { key: 'cc', icon: <BellOutlined />, label: '抄送我的', permission: 'menu.approvals.cc' },
+  { key: 'manage', icon: <SettingOutlined />, label: '审批管理', permission: 'menu.approvals.manage' },
+  { key: 'organization', icon: <PartitionOutlined />, label: '组织架构', permission: 'menu.organization' },
+  { key: 'users', icon: <TeamOutlined />, label: '用户管理', permission: 'menu.users' },
+  { key: 'roles', icon: <SafetyOutlined />, label: '角色权限', permission: 'menu.roles' },
+  { key: 'workflow', icon: <SettingOutlined />, label: '流程配置', permission: 'menu.workflow_config' },
+  { key: 'notifications', icon: <BellOutlined />, label: '通知中心', permission: 'menu.notifications' },
+  { key: 'audit', icon: <AuditOutlined />, label: '审计日志', permission: 'menu.audit_logs' }
 ];
 
 const approvalTypeOptions = [
@@ -1422,7 +1422,7 @@ const approvalStatusOptions = [
 ];
 
 function ApprovalManagementPage() {
-  const [filters, setFilters] = useState<ApprovalManagementQuery>({});
+  const [filters, setFilters] = useState<ApprovalManagementQuery>({ page: 1, pageSize: 20 });
   const [detailId, setDetailId] = useState<number | null>(null);
   const [form] = Form.useForm();
   const list = useQuery({
@@ -1436,7 +1436,11 @@ function ApprovalManagementPage() {
     queryFn: () => fetchApprovalDetail(detailId!),
     enabled: Boolean(detailId)
   });
-  const data = list.data?.success ? list.data.data : [];
+  const paged = list.data?.success ? list.data.data : null;
+  const data = paged?.items || [];
+  const totalCount = paged?.totalCount || 0;
+  const currentPage = paged?.page || filters.page || 1;
+  const currentPageSize = paged?.pageSize || filters.pageSize || 20;
   const stats = statistics.data?.success ? statistics.data.data : null;
   const departmentOptions = flattenDepartments(departments.data?.success ? departments.data.data : []).map((department) => ({ value: department.id, label: department.name }));
   const detailData = detail.data?.success ? detail.data.data : null;
@@ -1450,7 +1454,9 @@ function ApprovalManagementPage() {
     endCreatedAt: values.endCreatedAt ? values.endCreatedAt.toISOString() : undefined,
     minAmount: values.minAmount,
     maxAmount: values.maxAmount,
-    urgent: values.urgent
+    urgent: values.urgent,
+    page: 1,
+    pageSize: currentPageSize
   });
 
   const exportMutation = useMutation({
@@ -1496,7 +1502,7 @@ function ApprovalManagementPage() {
           </Form.Item>
           <Space>
             <Button type="primary" htmlType="submit">查询</Button>
-            <Button onClick={() => { form.resetFields(); setFilters({}); }}>重置</Button>
+            <Button onClick={() => { form.resetFields(); setFilters({ page: 1, pageSize: currentPageSize }); }}>重置</Button>
           </Space>
         </Form>
       </Card>
@@ -1516,6 +1522,14 @@ function ApprovalManagementPage() {
           rowKey="id"
           dataSource={data}
           loading={list.isLoading}
+          pagination={{
+            current: currentPage,
+            pageSize: currentPageSize,
+            total: totalCount,
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 条`,
+            onChange: (nextPage, nextSize) => setFilters({ ...filters, page: nextPage, pageSize: nextSize })
+          }}
           columns={[
             { title: '单号', dataIndex: 'requestNo' },
             { title: '标题', dataIndex: 'title' },
@@ -1703,14 +1717,29 @@ function AuditLogPage() {
 }
 
 function AppShell({ user, onLogout }: { user: CurrentUser; onLogout: () => void }) {
-  const [selectedKey, setSelectedKey] = useState('dashboard');
+  const permissionSet = useMemo(() => new Set(user.permissions || []), [user.permissions]);
+  const visibleMenuItems = useMemo(
+    () => menuItems
+        .filter((item) => permissionSet.has(item.permission))
+        .map(({ permission, ...rest }) => rest),
+    [permissionSet]
+  );
+  const allowedKeys = useMemo(() => new Set(visibleMenuItems.map((item) => item.key)), [visibleMenuItems]);
+  const defaultKey = visibleMenuItems[0]?.key || 'dashboard';
+  const [selectedKey, setSelectedKey] = useState(defaultKey);
+  useEffect(() => {
+    if (!allowedKeys.has(selectedKey)) {
+      setSelectedKey(defaultKey);
+    }
+  }, [allowedKeys, defaultKey, selectedKey]);
   const currentMenu = menuItems.find((item) => item.key === selectedKey);
+  const canShow = (key: string) => allowedKeys.has(key) && selectedKey === key;
 
   return (
     <Layout className="app-shell">
       <Sider width={232} className="app-sider">
         <div className="brand">企业审批</div>
-        <Menu mode="inline" selectedKeys={[selectedKey]} onClick={(event) => setSelectedKey(event.key)} items={menuItems} />
+        <Menu mode="inline" selectedKeys={[selectedKey]} onClick={(event) => setSelectedKey(event.key)} items={visibleMenuItems} />
       </Sider>
       <Layout>
         <Header className="app-header">
@@ -1723,20 +1752,20 @@ function AppShell({ user, onLogout }: { user: CurrentUser; onLogout: () => void 
           </Space>
         </Header>
         <Content className="app-content">
-          {selectedKey === 'dashboard' && <Dashboard user={user} />}
-          {selectedKey === 'new' && <NewApprovalPage />}
-          {selectedKey === 'my' && <MyApprovalsPage />}
-          {selectedKey === 'todo' && <ApprovalTasksPage mode="todo" />}
-          {selectedKey === 'done' && <ApprovalTasksPage mode="done" />}
-          {selectedKey === 'cc' && <ApprovalCcPage />}
-          {selectedKey === 'manage' && <ApprovalManagementPage />}
-          {selectedKey === 'organization' && <OrganizationPage />}
-          {selectedKey === 'users' && <UserManagementPage />}
-          {selectedKey === 'roles' && <RolePermissionPage />}
-          {selectedKey === 'workflow' && <WorkflowConfigPage />}
-          {selectedKey === 'notifications' && <NotificationCenterPage />}
-          {selectedKey === 'audit' && <AuditLogPage />}
-          {selectedKey !== 'dashboard' && selectedKey !== 'new' && selectedKey !== 'my' && selectedKey !== 'todo' && selectedKey !== 'done' && selectedKey !== 'cc' && selectedKey !== 'manage' && selectedKey !== 'organization' && selectedKey !== 'users' && selectedKey !== 'roles' && selectedKey !== 'workflow' && selectedKey !== 'notifications' && selectedKey !== 'audit' && <PlaceholderPage title={String(currentMenu?.label || '模块')} />}
+          {canShow('dashboard') && <Dashboard user={user} />}
+          {canShow('new') && <NewApprovalPage />}
+          {canShow('my') && <MyApprovalsPage />}
+          {canShow('todo') && <ApprovalTasksPage mode="todo" />}
+          {canShow('done') && <ApprovalTasksPage mode="done" />}
+          {canShow('cc') && <ApprovalCcPage />}
+          {canShow('manage') && <ApprovalManagementPage />}
+          {canShow('organization') && <OrganizationPage />}
+          {canShow('users') && <UserManagementPage />}
+          {canShow('roles') && <RolePermissionPage />}
+          {canShow('workflow') && <WorkflowConfigPage />}
+          {canShow('notifications') && <NotificationCenterPage />}
+          {canShow('audit') && <AuditLogPage />}
+          {visibleMenuItems.length === 0 && <PlaceholderPage title={String(currentMenu?.label || '无可访问模块')} />}
         </Content>
       </Layout>
     </Layout>

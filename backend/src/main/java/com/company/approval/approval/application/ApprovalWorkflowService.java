@@ -245,9 +245,12 @@ public class ApprovalWorkflowService {
         if (!principal.getRoles().contains("admin")) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
+        if (!StringUtils.hasText(comment)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Void reason is required");
+        }
         ApprovalRequest request = findRequest(requestId);
-        if ("approved".equals(request.getStatus()) || "rejected".equals(request.getStatus()) || "withdrawn".equals(request.getStatus()) || "voided".equals(request.getStatus())) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "Completed request cannot be voided");
+        if (!"approved".equals(request.getStatus())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Only approved request can be voided");
         }
         String fromStatus = request.getStatus();
         request.voidRequest(principal.getUserId());
@@ -370,8 +373,14 @@ public class ApprovalWorkflowService {
             }
         }
         List<NodeRule> rules = new ArrayList<NodeRule>();
-        if ("leave".equals(request.getType()) || "overtime".equals(request.getType()) || "business_trip".equals(request.getType())) {
+        if ("leave".equals(request.getType())) {
             rules.add(new NodeRule("主管审批", "direct_manager"));
+            rules.add(new NodeRule("人事确认", "hr"));
+        } else if ("overtime".equals(request.getType())) {
+            rules.add(new NodeRule("主管审批", "direct_manager"));
+        } else if ("business_trip".equals(request.getType())) {
+            rules.add(new NodeRule("主管审批", "direct_manager"));
+            rules.add(new NodeRule("总经理审批", "general_manager"));
         } else if ("expense".equals(request.getType())) {
             rules.add(new NodeRule("主管审批", "direct_manager"));
             rules.add(new NodeRule("财务审批", "finance"));
@@ -388,6 +397,17 @@ public class ApprovalWorkflowService {
     }
 
     private SysUser resolveApprover(ApprovalRequest request, NodeRule rule) {
+        SysUser approver = doResolveApprover(request, rule);
+        if (approver == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "No approver available for node: " + rule.nodeName);
+        }
+        if (approver.getId() != null && approver.getId().equals(request.getApplicantId())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Applicant cannot approve own request at node: " + rule.nodeName);
+        }
+        return approver;
+    }
+
+    private SysUser doResolveApprover(ApprovalRequest request, NodeRule rule) {
         if ("specified_user".equals(rule.approverRule)) {
             SysUser user = findActiveUser(rule.approverUserId);
             if (user == null) {
@@ -400,11 +420,12 @@ public class ApprovalWorkflowService {
                     .orElseThrow(() -> new BusinessException(ErrorCode.BAD_REQUEST, "Applicant not found"));
             if (applicant.getDirectManagerId() != null) {
                 SysUser manager = findActiveUser(applicant.getDirectManagerId());
-                if (manager != null) {
+                if (manager != null && !manager.getId().equals(request.getApplicantId())) {
                     return manager;
                 }
             }
-            return findFirstUserByRole("admin", request.getApplicantId());
+            SysUser adminFallback = findFirstUserByRole("admin", request.getApplicantId());
+            return adminFallback;
         }
         SysUser roleUser = findFirstUserByRole(rule.approverRule, request.getApplicantId());
         if (roleUser != null) {
@@ -413,14 +434,17 @@ public class ApprovalWorkflowService {
         return findFirstUserByRole("admin", request.getApplicantId());
     }
 
-    private SysUser findFirstUserByRole(String roleCode, Long fallbackUserId) {
+    private SysUser findFirstUserByRole(String roleCode, Long excludeUserId) {
         for (Long userId : userRoleRepository.findUserIdsByRoleCode(roleCode)) {
+            if (excludeUserId != null && excludeUserId.equals(userId)) {
+                continue;
+            }
             SysUser user = findActiveUser(userId);
             if (user != null) {
                 return user;
             }
         }
-        return fallbackUserId == null ? null : findActiveUser(fallbackUserId);
+        return null;
     }
 
     private SysUser findActiveUser(Long userId) {

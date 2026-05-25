@@ -329,3 +329,55 @@
   - 范围：本地启动说明、环境变量、数据库准备、测试命令、默认账号。
   - 产出：已更新 `README.md`，修正乱码和过期内容。
   - 验收：README 已包含 PostgreSQL、后端、前端启动命令，默认账号，测试/构建命令，Flyway 迁移和数据库安全约束。
+
+## 9. 阶段 9：阶段八后回归修缮（2026-05-25）
+
+阶段八验收通过后通过黑盒测试发现以下与 `spec.md` / `plan.md` 偏离的实现缺口，按八个固定步骤修复并写回测试与文档。
+
+- [x] T009-01 财务/人事数据权限范围限定。
+  - 来源：`spec.md` 第 4.3、4.4 章，`plan.md` 第 11 章。
+  - 决策：`DataPermissionService` 返回 `DataPermissionDecision { scope, allowedApprovalTypes }`，`finance` 限定 `expense`，`hr` 限定 `leave/overtime`，`admin`/`general_manager` 保持全量；`ApprovalManagementService.buildSpec` 与 `dashboard()` 统一应用类型过滤。
+  - 范围：`DataPermissionService`、`DataPermissionDecision`、`ApprovalManagementService`、`DataPermissionServiceTest`。
+  - 验收：单测覆盖 `admin`/`department_manager`/`employee`/`finance`/`hr`/`general_manager` 6 个分支，`mvn test` 由 7 个增至 10 个全部通过；接口验证 `finance01`、`hr01` 管理列表只返回各自允许的类型。
+
+- [x] T009-02 默认流程缺失节点补齐 + hr01 用户种子。
+  - 来源：`spec.md` 第 6.2 章，`plan.md` 第 9 章。
+  - 决策：`ApprovalWorkflowService.resolveRules` 把 leave 默认流程补回「人事确认（hr）」节点，business_trip 补回「总经理审批」节点；新增 `V8__align_default_workflow_templates_with_spec.sql` 对存量数据库幂等补节点；`InitialDataSeeder` 增加 `HR` 岗位与 `hr01` 用户。
+  - 范围：`ApprovalWorkflowService`、`InitialDataSeeder`、`V8` 迁移、`ApprovalWorkflowIntegrationTest`。
+  - 验收：员工提交 leave 后审批节点为「主管审批 → 人事确认」；集成测试已扩展为主管 + HR 两次同意才到 `approved`。
+
+- [x] T009-03 作废状态机收紧。
+  - 来源：`spec.md` 第 9.6 章，`plan.md` 第 8.2、13.9 章。
+  - 决策：`voidRequest` 仅允许从 `approved` 流转到 `voided`，作废原因不可为空；其它状态返回 `BAD_REQUEST` 而非 500。
+  - 范围：`ApprovalWorkflowService.voidRequest`。
+  - 验收：admin 调用 `/api/approvals/{id}/void` 作用于 `in_progress` 请求时返回 `BAD_REQUEST/Only approved request can be voided`。
+
+- [x] T009-04 审批人解析禁止回退到申请人。
+  - 来源：`spec.md` 第 6.3 章，`plan.md` 第 13.1 章。
+  - 决策：`resolveApprover` 末尾显式校验「approver != applicant」，`findFirstUserByRole` 把 fallbackUserId 改为「需排除的用户 id」而不是兜底返回值；无法解析时抛 `BAD_REQUEST` 业务异常。
+  - 范围：`ApprovalWorkflowService`。
+  - 验收：默认 seed 下所有内置审批人正常解析；构造无主管 + 无对应角色用户时返回明确业务错误，不会出现「申请人审批自己」。
+
+- [x] T009-05 管理列表分页与统计聚合。
+  - 来源：`plan.md` 第 14、19.1 章。
+  - 决策：新增 `PagedResult<T>` 包装，`ApprovalManagementService.list` 使用 `Pageable`；`statistics()` 改为按状态/类型多次 `count()` 聚合查询；导出按 5000 条硬上限分页拉取；前端 `ApprovalManagementPage` 使用 Ant Design `Table` 分页器并把 `page`/`pageSize` 透传到查询。
+  - 范围：`PagedResult`、`ApprovalManagementService`、`ApprovalManagementController`、`ApprovalManagementQuery`、`frontend/src/api.ts`、`frontend/src/App.tsx`。
+  - 验收：`/api/approval-management?page=1&pageSize=5` 返回 `{ items, totalCount, page, pageSize }`；前端可正确分页显示。
+
+- [x] T009-06 JWT 默认密钥校验与操作权限点种子。
+  - 来源：`AGENTS.md` 第 6.0、7 章，`plan.md` 第 18.2、19.2 章。
+  - 决策：`JwtTokenService` 在 `@PostConstruct` 比对默认密钥与 `app.environment`，非开发环境拒绝使用默认密钥并启动失败；`InitialDataSeeder` 补齐 13 个菜单权限 + 19 个操作权限点，并按 employee / department_manager / finance / hr / general_manager / admin 角色矩阵授权。
+  - 范围：`JwtTokenService`、`InitialDataSeeder`、`application-postgres.yml`（环境变量映射）。
+  - 验收：开发环境启动日志出现 JWT WARN；`/api/auth/me` 对 6 个内置用户返回各自角色对应的菜单+操作权限。
+
+- [x] T009-07 前端菜单按权限过滤 + chunk 拆分。
+  - 来源：`spec.md` 第 11 章，`plan.md` 第 6.2、11.3 章。
+  - 决策：`AppShell` 用 `useMemo` 把 `user.permissions` 转 Set，按 `menu.*` 过滤侧边栏与页面渲染；`vite.config.ts` 增加 `manualChunks` 把 `antd`、`react`、`tanstack`、`vendor` 拆为独立 chunk。
+  - 范围：`frontend/src/App.tsx`、`frontend/vite.config.ts`。
+  - 验收：普通员工登录只看到 5 个菜单；admin 仍看到 13 个菜单；`npm run build` 主 chunk 由约 1.3 MB 降至约 46 kB。
+
+- [x] T009-08 规范文档同步。
+  - 来源：`AGENTS.md` 第 10 章。
+  - 决策：更新 `plan.md` 第 12.3（API 路径表）、第 11.1（数据权限矩阵）、第 19.1（分页性能）、第 19.2（JWT 密钥要求）、第 5.4（角色码）；在 `acceptance.md` 增加「阶段八后续修缮」节；在 `tasks.md` 增加阶段 9 任务条目。
+  - 范围：`plan.md`、`acceptance.md`、`tasks.md`。
+  - 验收：文档与当前实现路径、角色码、状态机、权限矩阵一致。

@@ -59,6 +59,23 @@ tsc && vite build
 ## 后续增强项
 
 - 前端目前以 `tsc && vite build` 作为正式校验，尚未引入 Playwright 或组件测试体系。建议后续单独建设端到端测试，覆盖登录、提交、审批、筛选和导出。
-- Vite 构建提示主 JS chunk 超过 500 kB。建议后续按页面路由做动态导入和 chunk 拆分。
-- 平均审批耗时当前未作为第一版硬性验收项精确展示，后续可基于动作日志补充统计口径。
 - 24 小时超时扫描逻辑已实现，但真实 24 小时等待场景未在本阶段长时间等待验证，后续可增加可控时间源或专门集成测试。
+
+## 阶段八后续修缮（2026-05-25）
+
+针对阶段八后通过黑盒测试发现的偏差，按八个步骤完成修复，详见 `tasks.md` 第 9 节：
+
+1. `DataPermissionService` 给 `finance` / `hr` 增加 `allowedApprovalTypes`：分别限定为 `expense` 与 `leave/overtime`，`general_manager` / `admin` 保持全量；补充 3 个单测分支，后端 `mvn test` 由 7 个增至 10 个全部通过。
+2. `ApprovalWorkflowService.resolveRules` 恢复 spec 6.2 默认流程：`leave` 增加「人事确认（hr）」节点、`business_trip` 增加「总经理审批」节点；新增 Flyway 迁移 `V8__align_default_workflow_templates_with_spec.sql` 对存量数据库幂等补节点；`InitialDataSeeder` 增加 `hr01` 用户与 HR 岗位。
+3. `voidRequest` 仅允许 `approved -> voided`，作废原因不可为空，其它状态返回 `BAD_REQUEST` 而非 500。
+4. 审批人解析移除「无可用审批人时回退到申请人」的回退路径，并显式拒绝申请人解析为自身审批人，避免自我审批越权。
+5. `ApprovalManagementService` 列表改为 `Pageable` 分页并新增 `PagedResult<T>` 包装；统计接口改为多次 `count()` 聚合查询；导出按页拉取（硬上限 5000）。前端 `App.tsx` 同步使用 Ant Design `Table` 的分页器。
+6. `JwtTokenService` 在 `@PostConstruct` 校验默认密钥：非开发环境若未覆盖默认密钥则启动失败，开发环境记录 WARN；`InitialDataSeeder` 补齐 plan 18.2 全量操作权限点（approval.*、organization.manage、user.manage、role.manage、workflow.manage、audit.view、dashboard.statistics.view），并按角色矩阵授权。
+7. 前端 `AppShell` 改为按 `user.permissions` 过滤侧边栏与页面渲染；`vite.config.ts` 引入 `manualChunks` 把 antd / react / tanstack 拆为独立 chunk，主入口 JS 由约 1306 kB 降至约 46 kB。
+8. `plan.md` 同步：12.3 API 路径表、11.1 数据权限矩阵、19.1 性能、19.2 安全（JWT 密钥要求）、5.4 角色码已更新。`tasks.md` 第 9 节追加阶段九修缮任务条目。
+
+修缮后基线：
+- 后端 `mvn test` 10/10 通过，`Tests run: 10, Failures: 0, Errors: 0, Skipped: 0`。
+- 前端 `npm run build` 通过，主 chunk 拆分后默认 chunkSizeWarningLimit = 800 kB；antd 单独 chunk 约 985 kB（gzip 309 kB）。
+- Flyway 已生效 V8 迁移。
+- 端到端验证：员工提交请假后生成 主管→HR 两节点；admin 对 in_progress 作废返回干净 `BAD_REQUEST`；finance 管理列表仅返回 `expense`；hr 管理列表仅返回 `leave/overtime`；`/api/approval-management` 支持 `page`/`pageSize` 分页参数。

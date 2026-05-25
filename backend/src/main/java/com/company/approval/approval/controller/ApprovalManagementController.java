@@ -1,12 +1,11 @@
 package com.company.approval.approval.controller;
 
-import java.util.List;
-
 import com.company.approval.approval.application.ApprovalManagementService;
 import com.company.approval.approval.dto.ApprovalManagementQuery;
 import com.company.approval.approval.dto.ApprovalManagementResponse;
 import com.company.approval.approval.dto.DashboardSummaryResponse;
 import com.company.approval.approval.dto.StatisticsResponse;
+import com.company.approval.common.pagination.PagedResult;
 import com.company.approval.common.response.ApiResponse;
 import com.company.approval.security.principal.CurrentUserProvider;
 import org.springframework.http.ContentDisposition;
@@ -31,7 +30,7 @@ public class ApprovalManagementController {
     }
 
     @GetMapping
-    public ApiResponse<List<ApprovalManagementResponse>> list(@ModelAttribute ApprovalManagementQuery query) {
+    public ApiResponse<PagedResult<ApprovalManagementResponse>> list(@ModelAttribute ApprovalManagementQuery query) {
         return ApiResponse.success(service.list(query, currentUserProvider.getCurrentUser()));
     }
 
@@ -54,3 +53,4 @@ public class ApprovalManagementController {
         return ApiResponse.success(service.statistics(currentUserProvider.getCurrentUser()));
     }
 }
+

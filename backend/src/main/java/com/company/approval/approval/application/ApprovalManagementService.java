@@ -21,11 +21,15 @@ import com.company.approval.approval.repository.ApprovalRequestRepository;
 import com.company.approval.approval.repository.ApprovalTaskRepository;
 import com.company.approval.common.exception.BusinessException;
 import com.company.approval.common.exception.ErrorCode;
+import com.company.approval.common.pagination.PagedResult;
 import com.company.approval.notification.repository.NotificationRepository;
 import com.company.approval.security.permission.DataPermissionDecision;
 import com.company.approval.security.permission.DataPermissionScope;
 import com.company.approval.security.permission.DataPermissionService;
 import com.company.approval.security.principal.UserPrincipal;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -34,6 +38,8 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class ApprovalManagementService {
+
+    private static final int EXPORT_HARD_LIMIT = 5000;
 
     private final ApprovalRequestRepository requestRepository;
     private final ApprovalTaskRepository taskRepository;
@@ -55,12 +61,16 @@ public class ApprovalManagementService {
     }
 
     @Transactional(readOnly = true)
-    public List<ApprovalManagementResponse> list(ApprovalManagementQuery query, UserPrincipal principal) {
+    public PagedResult<ApprovalManagementResponse> list(ApprovalManagementQuery query, UserPrincipal principal) {
+        int page = query.resolvePage();
+        int pageSize = query.resolvePageSize();
+        Pageable pageable = PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<ApprovalRequest> resultPage = requestRepository.findAll(buildSpec(query, principal), pageable);
         List<ApprovalManagementResponse> responses = new ArrayList<ApprovalManagementResponse>();
-        for (ApprovalRequest request : findRequests(query, principal)) {
+        for (ApprovalRequest request : resultPage.getContent()) {
             responses.add(new ApprovalManagementResponse(request));
         }
-        return responses;
+        return new PagedResult<ApprovalManagementResponse>(responses, resultPage.getTotalElements(), page, pageSize);
     }
 
     @Transactional
@@ -68,7 +78,9 @@ public class ApprovalManagementService {
         if (!principal.getRoles().contains("admin") && !principal.getRoles().contains("general_manager")) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
-        List<ApprovalRequest> requests = findRequests(query, principal);
+        Pageable pageable = PageRequest.of(0, EXPORT_HARD_LIMIT, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<ApprovalRequest> resultPage = requestRepository.findAll(buildSpec(query, principal), pageable);
+        List<ApprovalRequest> requests = resultPage.getContent();
         StringBuilder csv = new StringBuilder();
         csv.append("requestNo,title,type,status,applicantName,departmentName,amount,urgent,submittedAt,createdAt\n");
         for (ApprovalRequest request : requests) {
@@ -83,9 +95,17 @@ public class ApprovalManagementService {
                     .append(request.getSubmittedAt() == null ? "" : request.getSubmittedAt()).append(',')
                     .append(request.getCreatedAt() == null ? "" : request.getCreatedAt()).append('\n');
         }
-        if (!requests.isEmpty()) {
-            ApprovalRequest first = requests.get(0);
-            actionLogRepository.save(new ApprovalActionLog(first.getId(), principal.getUserId(), principal.getDisplayName(), "export", first.getStatus(), first.getStatus(), "导出审批记录：" + requests.size() + " 条"));
+        Long anchorRequestId = requests.isEmpty() ? null : requests.get(0).getId();
+        String anchorStatus = requests.isEmpty() ? "approved" : requests.get(0).getStatus();
+        if (anchorRequestId != null) {
+            actionLogRepository.save(new ApprovalActionLog(
+                    anchorRequestId,
+                    principal.getUserId(),
+                    principal.getDisplayName(),
+                    "export",
+                    anchorStatus,
+                    anchorStatus,
+                    "导出审批记录：" + requests.size() + " 条，total=" + resultPage.getTotalElements()));
         }
         return csv.toString().getBytes(StandardCharsets.UTF_8);
     }
@@ -98,7 +118,8 @@ public class ApprovalManagementService {
                 cb.equal(root.get("applicantId"), principal.getUserId()),
                 cb.equal(root.get("status"), "in_progress")));
         long unread = notificationRepository.countByUserIdAndReadAtIsNullAndDeletedFalse(principal.getUserId());
-        long globalPending = dataPermissionService.decide(principal).getScope() == DataPermissionScope.ALL
+        DataPermissionDecision decision = dataPermissionService.decide(principal);
+        long globalPending = (decision.getScope() == DataPermissionScope.ALL && !decision.hasApprovalTypeRestriction())
                 ? taskRepository.countByStatusAndDeletedFalse("pending") : 0;
         OffsetDateTime start = LocalDate.now(ZoneId.systemDefault()).atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
         long todaySubmitted = requestRepository.count((root, query, cb) -> cb.and(
@@ -109,21 +130,29 @@ public class ApprovalManagementService {
 
     @Transactional(readOnly = true)
     public StatisticsResponse statistics(UserPrincipal principal) {
-        List<ApprovalRequest> requests = findRequests(new ApprovalManagementQuery(), principal);
+        Specification<ApprovalRequest> baseSpec = buildSpec(new ApprovalManagementQuery(), principal);
+        long pending = requestRepository.count(combine(baseSpec, "status", "in_progress"));
+        long approved = requestRepository.count(combine(baseSpec, "status", "approved"));
+        long rejected = requestRepository.count(combine(baseSpec, "status", "rejected"));
         Map<String, Long> typeCounts = new LinkedHashMap<String, Long>();
-        Map<String, Long> statusCounts = new LinkedHashMap<String, Long>();
-        for (ApprovalRequest request : requests) {
-            increment(typeCounts, request.getType());
-            increment(statusCounts, request.getStatus());
+        for (String type : new String[]{"leave", "expense", "purchase", "overtime", "business_trip"}) {
+            long count = requestRepository.count(combine(baseSpec, "type", type));
+            if (count > 0) {
+                typeCounts.put(type, count);
+            }
         }
-        long pending = statusCounts.containsKey("in_progress") ? statusCounts.get("in_progress") : 0L;
-        long approved = statusCounts.containsKey("approved") ? statusCounts.get("approved") : 0L;
-        long rejected = statusCounts.containsKey("rejected") ? statusCounts.get("rejected") : 0L;
+        Map<String, Long> statusCounts = new LinkedHashMap<String, Long>();
+        for (String status : new String[]{"draft", "in_progress", "approved", "rejected", "withdrawn", "need_more_info", "voided"}) {
+            long count = requestRepository.count(combine(baseSpec, "status", status));
+            if (count > 0) {
+                statusCounts.put(status, count);
+            }
+        }
         return new StatisticsResponse(typeCounts, statusCounts, pending, approved, rejected, taskRepository.countByOverdueTrueAndDeletedFalse());
     }
 
-    private List<ApprovalRequest> findRequests(ApprovalManagementQuery query, UserPrincipal principal) {
-        return requestRepository.findAll(buildSpec(query, principal), Sort.by(Sort.Direction.DESC, "createdAt"));
+    private Specification<ApprovalRequest> combine(Specification<ApprovalRequest> base, String field, Object value) {
+        return base.and((root, query, cb) -> cb.equal(root.get(field), value));
     }
 
     private Specification<ApprovalRequest> buildSpec(ApprovalManagementQuery query, UserPrincipal principal) {
@@ -136,8 +165,16 @@ public class ApprovalManagementService {
             } else if (decision.getScope() == DataPermissionScope.DEPARTMENT) {
                 predicates.add(cb.equal(root.get("departmentId"), decision.getDepartmentId()));
             }
+            if (decision.hasApprovalTypeRestriction()) {
+                predicates.add(root.get("type").in(decision.getAllowedApprovalTypes()));
+            }
             if (StringUtils.hasText(query.getType())) {
-                predicates.add(cb.equal(root.get("type"), query.getType()));
+                if (decision.hasApprovalTypeRestriction()
+                        && !decision.getAllowedApprovalTypes().contains(query.getType())) {
+                    predicates.add(cb.disjunction());
+                } else {
+                    predicates.add(cb.equal(root.get("type"), query.getType()));
+                }
             }
             if (StringUtils.hasText(query.getStatus())) {
                 predicates.add(cb.equal(root.get("status"), query.getStatus()));
@@ -165,10 +202,6 @@ public class ApprovalManagementService {
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
-    }
-
-    private void increment(Map<String, Long> counts, String key) {
-        counts.put(key, counts.containsKey(key) ? counts.get(key) + 1 : 1L);
     }
 
     private String csv(String value) {
