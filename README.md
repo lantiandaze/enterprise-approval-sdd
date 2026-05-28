@@ -167,23 +167,30 @@ tools/apache-maven-3.9.9/
 tools/pgsql/bin/
 tools/pgsql/lib/
 tools/pgsql/share/
-tools/pgdata/
+scripts/
 ```
 
-其中 `tools/pgdata/` 是发布时新初始化的空数据库目录，只包含空数据库 `enterprise_approval`，不包含本地业务数据。
+便携包不预置 `tools/pgdata/`。第一次启动时会在当前机器上自动初始化新的 PostgreSQL 数据目录，并创建空数据库 `enterprise_approval`。这样可以避免把发布者本机的 PostgreSQL 权限、日志、业务数据打进压缩包。
 
 以下命令均在项目根目录 `enterprise-approval-sdd` 下执行。
 
 ### 1. 启动 PostgreSQL
 
 ```powershell
-.\tools\pgsql\bin\pg_ctl.exe -D .\tools\pgdata -l .\tools\pgdata\postgres.log start
+.\scripts\start-postgres.bat
 ```
+
+该脚本会自动执行：
+
+- 检查 `tools/pgsql/bin/pg_ctl.exe` 是否存在。
+- 如果 `tools/pgdata/PG_VERSION` 不存在，先执行 `initdb`。
+- 启动 PostgreSQL。
+- 创建空数据库 `enterprise_approval`，如果数据库已存在则跳过。
 
 ### 2. 启动后端
 
 ```powershell
-.\tools\apache-maven-3.9.9\bin\mvn.cmd -f .\backend\pom.xml spring-boot:run "-Dspring-boot.run.profiles=postgres"
+.\scripts\start-backend.bat
 ```
 
 后端健康检查：
@@ -195,9 +202,7 @@ http://localhost:8080/api/health
 ### 3. 启动前端
 
 ```powershell
-cd .\frontend
-npm.cmd install
-npm.cmd run dev
+.\scripts\start-frontend.bat
 ```
 
 前端访问地址：
@@ -209,7 +214,7 @@ http://localhost:5173/
 ### 4. 停止 PostgreSQL
 
 ```powershell
-.\tools\pgsql\bin\pg_ctl.exe -D .\tools\pgdata stop
+.\scripts\stop-postgres.bat
 ```
 
 ---

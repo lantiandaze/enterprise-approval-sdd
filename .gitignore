@@ -35,6 +35,9 @@ backend/storage/
 tmp/
 temp/
 tools/
+.claude/
+.release/
+release-artifacts/
 
 # Local database and generated verification artifacts
 pgdata/
